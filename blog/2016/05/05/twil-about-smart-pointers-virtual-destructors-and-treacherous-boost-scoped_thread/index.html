@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <title>TWIL about smart pointers, virtual destructors and treacherous boost::scoped_thread - Random stuff I learned..</title>
+    <meta charset="utf-8" />
+    <meta name="author" content="Pär Bohrarper" />
+    <meta name="description" content="&lt;TODO: insert your description here&gt;" />
+    <meta name="keywords" content="C++, boost" />
+    <link rel="stylesheet" href="/media/css/main.css" type="text/css">
+    <link rel="stylesheet" href="/media/css/prettify.css" type="text/css">
+  </head>
+  <body class="container">
+    <div>
+      <header class="masthead">
+        <h1 class="masthead-title"><a href="/">Random stuff I learned..</a></h1>
+        <p>..mostly while coding</p>
+        <ul>
+          <li><a href="/blog/">Blog</a></li>
+          <li><a href="/tags/">Tags</a></li>
+          <li><a href="/about/">About</a></li>
+          <li><a href="https://github.com/parbo">GitHub</a></li>
+          <li><a href="/rss.xml">RSS</a></li>
+        </ul>
+        <form method="get" id="searchform" action="//www.google.com/search">
+          <input type="text" class="field" name="q" id="s" placeholder="Search">
+          <input type="hidden" name="as_sitesearch" value="parbo.github.io">
+        </form>
+      </header>
+    </div>
+
+<div>
+<div class="post">
+<h1>TWIL about smart pointers, virtual destructors and treacherous boost::scoped_thread</h1>
+<p>
+This week I switched some code from using old smart pointers (based on WebKit's RefPtr) to using stuff from the std lib. I also switched the thread stuff in that code to use <code>boost::scoped_thread&lt;&gt;</code>. I ended up with something like this:
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c++">class AbstractBase {
+public:
+  static std::unique_ptr&lt;AbstractBase&gt; create();
+  virtual void doStuff() = 0;
+};
+
+class Impl : public AbstractBase {
+public:
+  Impl()
+	  : _barrier{2}, _thread(boost::thread{[] {
+		  _barrier.wait();
+		  pipe(_fd);
+		  while (!boost::thread::interruption_requested()) {
+			boost::this_thread::sleep_for(boost::chrono::milliseconds{10});
+			// communicate on pipe
+		  }
+		}}) {
+	_barrier.wait();
+  }
+  ~Impl() {
+	// interrupt and join thread
+	_thread = thread_t();
+	// close pipe
+	close(_fd[0]);
+	close(_fd[1]);
+  }
+  void doStuff final override {
+	// communicate on pipe
+  }
+
+private:
+  boost::barrier _barrier;
+  using thread_t = boost::scoped_thread&lt;interrupt_and_join_if_joinable&gt;;
+  thread_t _thread;
+  int _fd[2];
+};
+
+std::unique_ptr&lt;AbstractBase&gt; AbstractBase::create() {
+  return std::move(boost::make_unique&lt;Impl&gt;());
+}
+</pre>
+</div>
+
+<p>
+Previously, the code returned a ref-counted smart pointer from <code>AbstractBase::create()</code>, and used manual joining of our in-house thread class. I switched to <code>unique_ptr</code> because the object didn't need shared ownership. I pushed a PR, got it reviewed and merged it. After I while, we started seeing intermittent heap use after free in our ASAN-enabled build configurations. Judging from ASAN's output, it looked like the thread didn't terminate as expected. Hmm, that's strange. After some digging, I realized that
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c++">_thread = thread_t();
+</pre>
+</div>
+
+<p>
+didn't interrupt and join the thread at all, it detached it! The move assignment didn't run the specified <code>scoped_thread</code> trait behavior in boost 1.59. Nor in 1.60, but it's fixed in the latest code.
+</p>
+
+<p>
+Ok, let's change it.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-c++">_thread.interrupt();
+if (_thread.joinable()) {
+  _thread.join();
+}
+</pre>
+</div>
+
+<p>
+Create PR, merge and wait. The intermittent ASAN failures persisted. Huh? I added some printouts to the code and ran the test that failed intermittently. Oh, the thread still didn't terminate! In fact, the <code>Impl</code> destructor didn't even run!
+</p>
+
+<p>
+It turns out that when using a ref-counted smart pointer (like <code>shared_ptr</code> or WebKit's <code>RefPtr</code>) you will delete through the type of the pointer you created it with, but <code>unique_ptr</code> will delete through the pointer type you have.
+</p>
+
+<p>
+Adding a virtual destructor fixed it.
+</p>
+
+<p>
+Here's some runnable code that shows the behavior: <a href="http://cpp.sh/2rwwt">http://cpp.sh/2rwwt</a> Try adding <code>virtual</code> before <code>~A</code> and observe the difference!
+</p>
+
+</div>
+</div>
+    <div>
+      <div class="post-meta">
+        <span title="post date" class="post-info">2016-05-05</span>
+        <span title="last modification date" class="post-info">2016-05-05</span>
+        <span title="tags" class="post-info"><a href="/tags/&lt;todo/">&lt;TODO</a>, <a href="/tags/insert-your-tags-here&gt;/">insert your tags here&gt;</a></span>
+        <span title="author" class="post-info">Pär Bohrarper</span>
+      </div>
+      <section>
+        <h1>Comments</h1>
+      </section>
+      <script src="//code.jquery.com/jquery-latest.min.js"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/prettify/r298/prettify.js"></script>
+      <script src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+      <script src="/media/js/main.js"></script>
+      <div class="footer">
+        <p>Generated by <a href="http://www.gnu.org/software/emacs/">Emacs</a> 24.x (<a href="http://orgmode.org">Org mode</a> 8.x)</p>
+        <p>
+          Copyright &copy; 2012 - <span id="footerYear"></span> <a href="mailto:par &lt;dot&gt; bohrarper &lt;at&gt; gmail &lt;dot&gt; com">Pär Bohrarper</a>
+          &nbsp;&nbsp;-&nbsp;&nbsp;
+          Powered by <a href="https://github.com/kelvinh/org-page" target="_blank">org-page</a>
+          <script type="text/javascript">document.getElementById("footerYear").innerHTML = (new Date()).getFullYear();</script>
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>
