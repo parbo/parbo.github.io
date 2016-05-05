@@ -4,10 +4,10 @@
 #+DATE:        2016-05-05 Thu
 #+URI:         /blog/%y/%m/%d/twil-about-smart-pointers-virtual-destructors-and-treacherous-boost-scoped_thread
 #+KEYWORDS:    C++, boost
-#+TAGS:        <TODO: insert your tags here>
+#+TAGS:        C++, boost
 #+LANGUAGE:    en
 #+OPTIONS:     H:3 num:nil toc:nil \n:nil ::t |:t ^:nil -:nil f:t *:t <:t
-#+DESCRIPTION: <TODO: insert your description here>
+#+DESCRIPTION: 
 
 This week I switched some code from using old smart pointers (based on WebKit's RefPtr) to using stuff from the std lib. I also switched the thread stuff in that code to use boost::scoped_thread<>. I ended up with something like this:
 
