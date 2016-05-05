@@ -37,46 +37,46 @@ This week I switched some code from using old smart pointers (based on WebKit's 
 
 <div class="org-src-container">
 
-<pre class="src src-c++">class AbstractBase {
-public:
-  static std::unique_ptr&lt;AbstractBase&gt; create();
-  virtual void doStuff() = 0;
-};
+<pre class="src src-c++">  class AbstractBase {
+  public:
+    static std::unique_ptr&lt;AbstractBase&gt; create();
+    virtual void doStuff() = 0;
+  };
 
-class Impl : public AbstractBase {
-public:
-  Impl()
-	  : _barrier{2}, _thread(boost::thread{[] {
-		  _barrier.wait();
-		  pipe(_fd);
-		  while (!boost::thread::interruption_requested()) {
-			boost::this_thread::sleep_for(boost::chrono::milliseconds{10});
-			// communicate on pipe
-		  }
-		}}) {
-	_barrier.wait();
-  }
-  ~Impl() {
-	// interrupt and join thread
-	_thread = thread_t();
-	// close pipe
-	close(_fd[0]);
-	close(_fd[1]);
-  }
-  void doStuff final override {
-	// communicate on pipe
-  }
+  class Impl : public AbstractBase {
+  public:
+    Impl()
+        : _barrier{2}, _thread(boost::thread{[] {
+            _barrier.wait();
+            pipe(_fd);
+            while (!boost::thread::interruption_requested()) {
+              boost::this_thread::sleep_for(boost::chrono::milliseconds{10});
+              // communicate on pipe
+            }
+          }}) {
+      _barrier.wait();
+    }
+    ~Impl() {
+      // interrupt and join thread
+      _thread = thread_t();
+      // close pipe
+      close(_fd[0]);
+      close(_fd[1]);
+    }
+    void doStuff final override {
+      // communicate on pipe
+    }
 
-private:
-  boost::barrier _barrier;
-  using thread_t = boost::scoped_thread&lt;interrupt_and_join_if_joinable&gt;;
-  thread_t _thread;
-  int _fd[2];
-};
+  private:
+    boost::barrier _barrier;
+    using thread_t = boost::scoped_thread&lt;interrupt_and_join_if_joinable&gt;;
+    thread_t _thread;
+    int _fd[2];
+  };
 
-std::unique_ptr&lt;AbstractBase&gt; AbstractBase::create() {
-  return std::move(boost::make_unique&lt;Impl&gt;());
-}
+  std::unique_ptr&lt;AbstractBase&gt; AbstractBase::create() {
+    return std::move(boost::make_unique&lt;Impl&gt;());
+  }
 </pre>
 </div>
 
@@ -86,7 +86,7 @@ Previously, the code returned a ref-counted smart pointer from AbstractBase::cre
 
 <div class="org-src-container">
 
-<pre class="src src-c++">_thread = thread_t();
+<pre class="src src-c++">  _thread = thread_t();
 </pre>
 </div>
 
@@ -100,10 +100,10 @@ Ok, let's change it.
 
 <div class="org-src-container">
 
-<pre class="src src-c++">_thread.interrupt();
-if (_thread.joinable()) {
-  _thread.join();
-}
+<pre class="src src-c++">  _thread.interrupt();
+  if (_thread.joinable()) {
+    _thread.join();
+  }
 </pre>
 </div>
 
