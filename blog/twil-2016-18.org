@@ -1,0 +1,80 @@
+#+TITLE:       TWIL about smart pointers, virtual destructors and treacherous boost::scoped_thread
+#+AUTHOR:      Pär Bohrarper
+#+EMAIL:       par.bohrarper@gmail.com
+#+DATE:        2016-05-05 Thu
+#+URI:         /blog/%y/%m/%d/twil-about-smart-pointers-virtual-destructors-and-treacherous-boost-scoped_thread
+#+KEYWORDS:    C++, boost
+#+TAGS:        <TODO: insert your tags here>
+#+LANGUAGE:    en
+#+OPTIONS:     H:3 num:nil toc:nil \n:nil ::t |:t ^:nil -:nil f:t *:t <:t
+#+DESCRIPTION: <TODO: insert your description here>
+
+This week I switched some code from using old smart pointers (based on WebKit's RefPtr) to using stuff from the std lib. I also switched the thread stuff in that code to use =boost::scoped_thread<>=. I ended up with something like this:
+
+#+BEGIN_SRC c++
+  class AbstractBase {
+  public:
+    static std::unique_ptr<AbstractBase> create();
+    virtual void doStuff() = 0;
+  };
+
+  class Impl : public AbstractBase {
+  public:
+    Impl()
+        : _barrier{2}, _thread(boost::thread{[] {
+            _barrier.wait();
+            pipe(_fd);
+            while (!boost::thread::interruption_requested()) {
+              boost::this_thread::sleep_for(boost::chrono::milliseconds{10});
+              // communicate on pipe
+            }
+          }}) {
+      _barrier.wait();
+    }
+    ~Impl() {
+      // interrupt and join thread
+      _thread = thread_t();
+      // close pipe
+      close(_fd[0]);
+      close(_fd[1]);
+    }
+    void doStuff final override {
+      // communicate on pipe
+    }
+
+  private:
+    boost::barrier _barrier;
+    using thread_t = boost::scoped_thread<interrupt_and_join_if_joinable>;
+    thread_t _thread;
+    int _fd[2];
+  };
+
+  std::unique_ptr<AbstractBase> AbstractBase::create() {
+    return std::move(boost::make_unique<Impl>());
+  }
+#+END_SRC
+
+Previously, the code returned a ref-counted smart pointer from =AbstractBase::create()=, and used manual joining of our in-house thread class. I switched to =unique_ptr= because the object didn't need shared ownership. I pushed a PR, got it reviewed and merged it. After I while, we started seeing intermittent heap use after free in our ASAN-enabled build configurations. Judging from ASAN's output, it looked like the thread didn't terminate as expected. Hmm, that's strange. After some digging, I realized that
+
+#+BEGIN_SRC c++
+  _thread = thread_t();
+#+END_SRC
+
+didn't interrupt and join the thread at all, it detached it! The move assignment didn't run the specified =scoped_thread= trait behavior in boost 1.59. Nor in 1.60, but it's fixed in the latest code.
+
+Ok, let's change it.
+
+#+BEGIN_SRC c++
+  _thread.interrupt();
+  if (_thread.joinable()) {
+    _thread.join();
+  }
+#+END_SRC
+
+Create PR, merge and wait. The intermittent ASAN failures persisted. Huh? I added some printouts to the code and ran the test that failed intermittently. Oh, the thread still didn't terminate! In fact, the =Impl= destructor didn't even run!
+
+It turns out that when using a ref-counted smart pointer (like =shared_ptr= or WebKit's =RefPtr=) you will delete through the type of the pointer you created it with, but =unique_ptr= will delete through the pointer type you have.
+
+Adding a virtual destructor fixed it.
+
+Here's some runnable code that shows the behavior: [[http://cpp.sh/2rwwt]] Try adding =virtual= before =~A= and observe the difference!
