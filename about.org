@@ -1,6 +1,6 @@
 #+TITLE: About
 
-* Programming (mostly C++) professionaly since 1998
-* Now at Spotify, working in the audio playback/streaming team
-* Used to DJ, likes synths and electronic music
-* Likes running, cycling and swimming
+- Programming (mostly C++) professionaly since 1998
+- Now at Spotify, working in the audio playback/streaming team
+- Used to DJ, likes synths and electronic music
+- Likes running, cycling and swimming

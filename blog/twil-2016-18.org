@@ -54,7 +54,7 @@ This week I switched some code from using old smart pointers (based on WebKit's 
   }
 #+END_SRC
 
-Previously, the code returned a ref-counted smart pointer from AbstractBase::create(), and used manual joining of our in-house thread class. I switched to =nique_ptr because the object didn't need shared ownership. I pushed a PR, got it reviewed and merged it. After I while, we started seeing intermittent heap use after free in our ASAN-enabled build configurations. Judging from ASAN's output, it looked like the thread didn't terminate as expected. Hmm, that's strange. After some digging, I realized that
+Previously, the code returned a ref-counted smart pointer from AbstractBase::create(), and used manual joining of our in-house thread class. I switched to unique_ptr because the object didn't need shared ownership. I pushed a PR, got it reviewed and merged it. After I while, we started seeing intermittent heap use after free in our ASAN-enabled build configurations. Judging from ASAN's output, it looked like the thread didn't terminate as expected. Hmm, that's strange. After some digging, I realized that
 
 #+BEGIN_SRC c++
   _thread = thread_t();
@@ -77,4 +77,4 @@ It turns out that when using a ref-counted smart pointer (like shared_ptr or Web
 
 Adding a virtual destructor fixed it.
 
-Here's some runnable code that shows the behavior: [[http://cpp.sh/2rwwt]] Try adding "virtual" before ~A and observe the difference!
+Here's some runnable code that shows the behavior: [[http://cpp.sh/2rwwt]]. Try adding "virtual" before ~A and observe the difference!
