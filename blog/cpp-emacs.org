@@ -13,7 +13,7 @@ About every six months I think to myself: "I should configure Emacs to be a bett
 
 Today was that day.
 
-To make things a bit harder, I also decided to re-architect my init-file using [[https://github.com/jwiegley/use-package][use-package]]. I had some automatic packaga installation before, but configuration was a mess.
+To make things a bit harder, I also decided to re-architect my init-file using [[https://github.com/jwiegley/use-package][use-package]]. I had some automatic package installation before, but configuration was a mess.
 
 So, what to use for C++ development? I have some requirements:
 
