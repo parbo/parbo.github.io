@@ -1,0 +1,259 @@
+<!DOCTYPE html>
+<html lang="en-us">
+  <head>
+    <title>Configuring Emacs for C++ - Random stuff I learned..</title>
+    <meta charset="utf-8" />
+    <meta name="author" content="Pär Bohrarper" />
+    <meta name="description" content="Configuring Emacs for C++" />
+    <meta name="keywords" content="C++, emacs" />
+    <link rel="stylesheet" href="/media/css/main.css" type="text/css">
+    <link rel="stylesheet" href="/media/css/prettify.css" type="text/css">
+  </head>
+  <body class="container">
+    <div>
+      <header class="masthead">
+        <h1 class="masthead-title"><a href="/">Random stuff I learned..</a></h1>
+        <p>..mostly while coding</p>
+        <ul>
+          <li><a href="/blog/">Blog</a></li>
+          <li><a href="/tags/">Tags</a></li>
+          <li><a href="/about/">About</a></li>
+          <li><a href="https://github.com/parbo">GitHub</a></li>
+          <li><a href="/rss.xml">RSS</a></li>
+        </ul>
+        <form method="get" id="searchform" action="//www.google.com/search">
+          <input type="text" class="field" name="q" id="s" placeholder="Search">
+          <input type="hidden" name="as_sitesearch" value="parbo.github.io">
+        </form>
+      </header>
+    </div>
+
+<div>
+<div class="post">
+<h1>Configuring Emacs for C++</h1>
+<p>
+About every six months I think to myself: "I should configure Emacs to be a better C++ environment, with IDE-like features!". It invariably ends in tears and frustration, which takes roghly the aforementioned six months to forget.
+</p>
+
+<p>
+Today was that day.
+</p>
+
+<p>
+To make things a bit harder, I also decided to re-architect my init-file using <a href="https://github.com/jwiegley/use-package">use-package</a>. I had some automatic packaga installation before, but configuration was a mess.
+</p>
+
+<p>
+So, what to use for C++ development? I have some requirements:
+</p>
+
+<ul class="org-ul">
+<li>cmake support</li>
+<li>ninja support</li>
+<li>completion support</li>
+</ul>
+
+<p>
+I have tried <a href="https://github.com/redguardtoo/cpputils-cmake">cpputils-cmake</a> before, but unfortunately it needs makefiles to parse the compiler flags. I have also tried <a href="https://github.com/atilaneves/cmake-ide">cmake-ide</a>, but I could never get it configured quite right, and it felt slow. I figured, maybe my new use-package based configuration is easier to get right? Let's give it a shot.
+</p>
+
+<p>
+I made a minimal cmake-ide and company-mode configuration, something like this:
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-elisp">(use-package company
+  :ensure t
+  :init
+  (global-company-mode))
+
+(use-package cmake-ide
+  :ensure t
+  :init
+  (cmake-ide-setup))
+</pre>
+</div>
+
+<p>
+Hmm. It kind of works, but why does it create new cmake build folders all the time? Let's set cmake-ide-build-dir to something, using a .dir-locals.el file in the root of the project (replace PROJECT_ROOT with the proper path):
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-elisp">((nil . ((cmake-ide-build-dir . "&lt;PROJECT_ROOT&gt;/build"))))
+</pre>
+</div>
+
+<p>
+Now it runs cmake in the proper place, and cmake-ide-compile seems to do the right thing. But now completion fails with a rather large error message. What's wrong? Oh, it seems to be missing system includes. Let's fix it:
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-elisp">(use-package cmake-ide
+  :ensure t
+  :init
+  (use-package semantic/bovine/gcc)
+  (setq cmake-ide-flags-c++ (append '("-std=c++11")
+				    (mapcar (lambda (path) (concat "-I" path)) (semantic-gcc-get-include-paths "c++"))))
+  (setq cmake-ide-flags-c (append (mapcar (lambda (path) (concat "-I" path)) (semantic-gcc-get-include-paths "c"))))
+  (cmake-ide-setup))
+</pre>
+</div>
+
+<p>
+Ok, now it works <i>sometimes</i>. But darn, it is slow as molasses. It has to compile the whole file for every completion with company-clang, and doesn't cache anything. :(
+</p>
+
+<p>
+The tears and frustration are looming. 
+</p>
+
+<p>
+Let's try <a href="https://github.com/Sarcasm/irony-mode">irony-mode</a> instead. It's built on libclang, and runs a server process in the background. This means that emacs doesn't need to hang while waiting for completions. And it can keep state cached between queries.
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-elisp">(use-package irony
+  :ensure t
+  :config
+  (use-package company-irony
+    :ensure t
+    :config
+    (add-to-list 'company-backends 'company-irony))
+  (use-package company-irony-c-headers
+    :ensure t
+    :config
+    (add-to-list 'company-backends 'company-irony-c-headers))
+  (add-hook 'c++-mode-hook 'irony-mode)
+  (add-hook 'c-mode-hook 'irony-mode)
+  (add-hook 'objc-mode-hook 'irony-mode)
+  ;; replace the `completion-at-point' and `complete-symbol' bindings in
+  ;; irony-mode's buffers by irony-mode's function
+  (defun my-irony-mode-hook ()
+    (define-key irony-mode-map [remap completion-at-point]
+      'irony-completion-at-point-async)
+    (define-key irony-mode-map [remap complete-symbol]
+      'irony-completion-at-point-async))
+  (add-hook 'irony-mode-hook 'my-irony-mode-hook)
+  (add-hook 'irony-mode-hook 'irony-cdb-autosetup-compile-options))
+</pre>
+</div>
+
+<p>
+I added the company-irony and company-irony-c-headers backends to company, and disabled company-clang:
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-elisp">(use-package company
+  :ensure t
+  :init
+  (global-company-mode)
+  :config
+  (delete 'company-backends 'company-clang))
+</pre>
+</div>
+
+<p>
+Note that you also need to install the server, which you can do with M-x irony-install-server. You need to have libclang-dev installed to build it.
+</p>
+
+<p>
+Oh man, this works much better! The completion works, and is pretty quick too! There's still some slowness as the first file is opened, because cmake-ide needs to convert compile_commands.json produced by cmake to a format that irony likes. But it's not too bad.
+</p>
+
+<p>
+Wee, no tears, no frustration!
+</p>
+
+<p>
+Here's the whole shebang:
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-elisp">(use-package irony
+  :ensure t
+  :config
+  (use-package company-irony
+    :ensure t
+    :config
+    (add-to-list 'company-backends 'company-irony))
+  (use-package company-irony-c-headers
+    :ensure t
+    :config
+    (add-to-list 'company-backends 'company-irony-c-headers))
+  (add-hook 'c++-mode-hook 'irony-mode)
+  (add-hook 'c-mode-hook 'irony-mode)
+  (add-hook 'objc-mode-hook 'irony-mode)
+  ;; replace the `completion-at-point' and `complete-symbol' bindings in
+  ;; irony-mode's buffers by irony-mode's function
+  (defun my-irony-mode-hook ()
+    (define-key irony-mode-map [remap completion-at-point]
+      'irony-completion-at-point-async)
+    (define-key irony-mode-map [remap complete-symbol]
+      'irony-completion-at-point-async))
+  (add-hook 'irony-mode-hook 'my-irony-mode-hook)
+  (add-hook 'irony-mode-hook 'irony-cdb-autosetup-compile-options))
+
+(use-package company
+  :ensure t
+  :init
+  (global-company-mode)
+  :bind (("&lt;backtab&gt;" . company-complete-common-or-cycle))
+  :config
+  (delete 'company-backends 'company-clang))
+
+(use-package cmake-ide
+  :ensure t
+  :init
+  (use-package semantic/bovine/gcc)
+  (setq cmake-ide-flags-c++ (append '("-std=c++11")
+				    (mapcar (lambda (path) (concat "-I" path)) (semantic-gcc-get-include-paths "c++"))))
+  (setq cmake-ide-flags-c (append (mapcar (lambda (path) (concat "-I" path)) (semantic-gcc-get-include-paths "c"))))
+  (cmake-ide-setup))
+</pre>
+</div>
+
+<p>
+And one final tip. To avoid answering popups, and having to save safe local variables to your init file, add this to the cmake-ide config:
+</p>
+
+<div class="org-src-container">
+
+<pre class="src src-elisp">(put 'cmake-ide-build-dir 'safe-local-variable #'stringp)
+</pre>
+</div>
+
+</div>
+</div>
+    <div>
+      <div class="post-meta">
+        <span title="post date" class="post-info">2016-05-10</span>
+        <span title="last modification date" class="post-info">2016-05-10</span>
+        <span title="tags" class="post-info"><a href="/tags/c++/">C++</a>, <a href="/tags/emacs/">emacs</a></span>
+        <span title="author" class="post-info">Pär Bohrarper</span>
+      </div>
+      <section>
+        <h1>Comments</h1>
+      </section>
+      <script src="//code.jquery.com/jquery-latest.min.js"></script>
+      <script src="https://cdnjs.cloudflare.com/ajax/libs/prettify/r298/prettify.js"></script>
+      <script src="https://cdn.mathjax.org/mathjax/latest/MathJax.js?config=TeX-AMS-MML_HTMLorMML"></script>
+      <script src="/media/js/main.js"></script>
+      <div class="footer">
+        <p>Generated by <a href="http://www.gnu.org/software/emacs/">Emacs</a> 24.x (<a href="http://orgmode.org">Org mode</a> 8.x)</p>
+        <p>
+          Copyright &copy; 2012 - <span id="footerYear"></span> <a href="mailto:par &lt;dot&gt; bohrarper &lt;at&gt; gmail &lt;dot&gt; com">Pär Bohrarper</a>
+          &nbsp;&nbsp;-&nbsp;&nbsp;
+          Powered by <a href="https://github.com/kelvinh/org-page" target="_blank">org-page</a>
+          <script type="text/javascript">document.getElementById("footerYear").innerHTML = (new Date()).getFullYear();</script>
+        </p>
+      </div>
+    </div>
+
+  </body>
+</html>
