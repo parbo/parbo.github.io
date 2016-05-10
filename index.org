@@ -1,1 +1,3 @@
-I'm Pär Bohrarper. I'm a programmer and manager at Spotify.
+#+TITLE:    What's this?
+#+KEYWORDS: Emacs, Linux, C++, Programming, Blog
+I'm Pär Bohrarper. I'm a programmer and manager at Spotify. These are my +ramblings+ learnings.
