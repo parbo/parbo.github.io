@@ -9,7 +9,7 @@
 #+OPTIONS:     H:3 num:nil toc:nil \n:nil ::t |:t ^:nil -:nil f:t *:t <:t
 #+DESCRIPTION: Configuring Emacs for C++
 
-About every six months I think to myself: "I should configure Emacs to be a better C++ environment, with IDE-like features!". It invariably ends in tears and frustration, which takes roghly the aforementioned six months to forget.
+About every six months I think to myself: "I should configure Emacs to be a better C++ environment, with IDE-like features!". It invariably ends in tears and frustration, which takes roughly the aforementioned six months to forget.
 
 Today was that day.
 
